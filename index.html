@@ -1780,6 +1780,7 @@
       },
       remove(id) { put(id, null); },
       pendingCount: () => Object.keys(pending).length,
+      ready: () => loaded,
       forget() { try { localStorage.removeItem(CACHE); localStorage.removeItem(PENDING); } catch {} },
     };
   }
@@ -3239,6 +3240,7 @@
   }
   // The Publish to team button sits in the header on every view; the People sidebar shows who it covers and Copy link.
   async function renderPublish() {
+    if (sb) { renderTeamSyncStatus(); return; }
     $("side-publish").hidden = $("team-publish").hidden = !TEAM_URL || !people.length;
     if ($("side-publish").hidden) return;
     const send = people.filter(x => validEmail((x.email || "").toLowerCase()))
@@ -3295,6 +3297,129 @@
       $("team-msg").textContent = "Copy this link, then paste it in the team app under “Paste a publish link”.";
     }
   });
+
+  // ---- Team sync (hosted app, owner only): assigned tasks reach the team by themselves ----
+  // The same rules as a publish link, applied straight to public.team_tasks whenever they change: each person
+  // with an email gets their tasks (Repo left out) in tree order (subtasks after their parent). New ones are
+  // added and their phones notified; changed ones take the new title, tags and order; their ticks are kept;
+  // tasks no longer assigned to them are removed. Tasks members added themselves (no source_id), and pushed tasks
+  // for addresses no one in People has, are never touched.
+  let isOwner = false, syncSig = "", syncing = false, syncAgain = false, syncTimer = null, syncedAt = 0, syncErr = "", syncNote = "";
+  const teamTags = (list) => [...new Set((Array.isArray(list) ? list : [])
+    .map(x => String(x).toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, "").slice(0, 24)).filter(Boolean))].slice(0, 8);
+  // A person's tasks as one list: a preorder walk of their tree, siblings by order (as the team app sorts them).
+  function flatOrder(list) {
+    const sids = new Set(list.map(t => t.sid));
+    const kids = new Map();
+    list.forEach(t => {
+      const p = t.parent && sids.has(t.parent) && t.parent !== t.sid ? t.parent : null;
+      if (!kids.has(p)) kids.set(p, []);
+      kids.get(p).push(t);
+    });
+    kids.forEach(l => l.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)));
+    const out = [], seen = new Set();
+    const walk = (p) => (kids.get(p) || []).forEach(t => { if (seen.has(t.sid)) return; seen.add(t.sid); out.push(t); walk(t.sid); });
+    walk(null);
+    list.forEach(t => { if (!seen.has(t.sid)) out.push(t); });
+    return out;
+  }
+  function teamPlan() {
+    return people.filter(x => validEmail((x.email || "").toLowerCase())).map(x => ({
+      email: x.email.toLowerCase(),
+      tasks: flatOrder(publishTasks(x)).filter(t => String(t.title || "").trim()).map((t, k) => ({
+        sid: t.sid, title: t.title.replace(/\s+/g, " ").trim().slice(0, 300), tags: teamTags(t.tags), done: t.done, sort: k,
+      })),
+    }));
+  }
+  // Called from every render; only a real change (or the first load) starts a sync, a moment later.
+  function scheduleTeamSync() {
+    if (!sb || !isOwner || !store || !store.ready || !store.ready()) return;
+    const plan = teamPlan(), sig = JSON.stringify(plan);
+    if (sig === syncSig) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => teamSync(plan, sig), 1500);
+  }
+  async function teamSync(plan, sig) {
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    try {
+      const { data: cur, error } = await sb.from("team_tasks").select("id, assignee_email, source_id, title, tags, sort, parent_id").not("source_id", "is", null);
+      if (error) throw error;
+      const key = (email, sid) => email + "\n" + sid;
+      const have = new Map((cur || []).map(r => [key(r.assignee_email, r.source_id), r]));
+      const keep = new Set(), add = [], change = [], fresh = new Map();
+      const now = new Date().toISOString();
+      plan.forEach(p => p.tasks.forEach(t => {
+        const k = key(p.email, t.sid), old = have.get(k);
+        keep.add(k);
+        if (!old) {
+          add.push({ id: crypto.randomUUID(), assignee_email: p.email, source_id: t.sid, title: t.title, tags: t.tags,
+            done: t.done, completed_at: t.done ? now : null, parent_id: null, sort: t.sort, created_by: me.id });
+          if (!t.done) { if (!fresh.has(p.email)) fresh.set(p.email, []); fresh.get(p.email).push(t.title); }
+        } else if (old.title !== t.title || old.sort !== t.sort || old.parent_id || (old.tags || []).join(" ") !== t.tags.join(" ")) {
+          // Only these columns are sent, so the member's tick (done, completed_at) stays as it is.
+          change.push({ id: old.id, assignee_email: old.assignee_email, source_id: old.source_id, title: t.title, tags: t.tags, sort: t.sort, parent_id: null });
+        }
+      }));
+      // Only the lists of people in People with an email are kept in step (like a publish), so pushed tasks
+      // for any other address are left alone.
+      const emails = new Set(plan.map(p => p.email));
+      const remove = (cur || []).filter(r => emails.has(r.assignee_email) && !keep.has(key(r.assignee_email, r.source_id))).map(r => r.id);
+      for (let i = 0; i < add.length; i += 200) {
+        const { error: e } = await sb.from("team_tasks").insert(add.slice(i, i + 200));
+        if (e) throw e;
+      }
+      for (let i = 0; i < change.length; i += 200) {
+        const { error: e } = await sb.from("team_tasks").upsert(change.slice(i, i + 200), { onConflict: "id" });
+        if (e) throw e;
+      }
+      for (let i = 0; i < remove.length; i += 200) {
+        const { error: e } = await sb.from("team_tasks").delete().in("id", remove.slice(i, i + 200));
+        if (e) throw e;
+      }
+      syncSig = sig; syncedAt = Date.now(); syncErr = "";
+      const n = add.length + change.length + remove.length;
+      if (n) syncNote = [add.length && `${add.length} added`, change.length && `${change.length} updated`, remove.length && `${remove.length} removed`].filter(Boolean).join(", ");
+      // New tasks: a notification on each phone where that person turned them on (a failure doesn't undo the sync).
+      for (const [email, titles] of fresh) {
+        const short = titles.slice(0, 3).map(x => x.length > 60 ? x.slice(0, 58) + "…" : x);
+        sb.functions.invoke("push", { body: { action: "notify", email,
+          title: titles.length === 1 ? "New task from ProTracker" : `${titles.length} new tasks from ProTracker`,
+          body: short.join(" · ") + (titles.length > 3 ? ` +${titles.length - 3} more` : "") } }).catch(() => {});
+      }
+    } catch (e) {
+      syncErr = navigator.onLine === false ? "offline" : (e && e.message) || "error";
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(scheduleTeamSync, 30000);
+    } finally {
+      syncing = false;
+      renderTeamSyncStatus();
+      if (syncAgain) { syncAgain = false; scheduleTeamSync(); }
+    }
+  }
+  addEventListener("online", () => scheduleTeamSync());
+  // In the hosted app there's no Publish button: the People sidebar says what reaches the team.
+  function renderTeamSyncStatus() {
+    $("team-publish").hidden = true;
+    $("team-copy").hidden = true;
+    $("team-link").hidden = true;
+    $("side-publish").hidden = !isOwner || !people.length;
+    scheduleTeamSync();
+    if ($("side-publish").hidden) return;
+    $("side-publish").querySelector(".label").textContent = "Team lists";
+    const plan = teamPlan();
+    const without = people.filter(x => !validEmail((x.email || "").toLowerCase())).map(x => x.name);
+    const total = plan.reduce((n, x) => n + x.tasks.length, 0);
+    const when = syncedAt ? new Date(syncedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+    const state = syncErr === "offline" ? "Offline: changes go to the team when you're back online."
+      : syncErr ? `Couldn't update the team lists (${syncErr}). Trying again shortly.`
+      : syncing || syncSig !== JSON.stringify(plan) ? "Updating the team lists…"
+      : `Up to date${when ? ` (${when}${syncNote ? `: ${syncNote}` : ""})` : ""}.`;
+    $("team-msg").textContent = !plan.length ? "Add an email to someone to send them their tasks in the team app."
+      : `${state} Tasks you assign go to the team app by themselves: ${total} ${total === 1 ? "task" : "tasks"} for `
+        + plan.map(x => `${(people.find(p => (p.email || "").toLowerCase() === x.email) || {}).name || x.email} (${x.tasks.length})`).join(", ")
+        + "." + (without.length ? ` Not included (no email): ${without.join(", ")}.` : "");
+  }
 
   // ---- Writing pad: Pencil strokes on a canvas, read into tasks by Claude ----
   function setupPad(sample) {
@@ -3733,6 +3858,24 @@
     setStatus("Loading your tasks…");
     store = supaStore(me.id);
     padAllowed();
+    ownerCheck();
+  }
+  // The owner (a row in public.admins) keeps the team lists in sync and sees ticks live; remembered for offline starts.
+  async function ownerCheck() {
+    const KEY = "protracker.owner." + me.id;
+    try { isOwner = localStorage.getItem(KEY) === "1"; } catch {}
+    render();
+    const { data, error } = await sb.rpc("is_admin");
+    if (error) return;
+    isOwner = data === true;
+    try { localStorage.setItem(KEY, isOwner ? "1" : "0"); } catch {}
+    render();
+    if (!isOwner) return;
+    let t = null;
+    sb.channel("pt-team").on("postgres_changes", { event: "*", schema: "public", table: "team_tasks" }, () => {
+      clearTimeout(t);
+      t = setTimeout(pullTeam, 800);
+    }).subscribe();
   }
   // Only some people get the handwriting pad. The handwriting function holds the list (so it isn't in this public
   // page): asked with {check: true}, it answers for the signed-in person. The answer is kept for offline starts.

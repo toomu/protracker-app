@@ -21,7 +21,7 @@ ProTracker as its own web app at **https://protracker.indexhomes.in/**, with sig
 - **Handwriting:**
   - Only for the emails in `ALLOWED` in the function. The page asks the function (`{check: true}`) whether to show the pad, so the list isn't in the public page, and the function refuses anyone else.
   - It needs the secret `ANTHROPIC_API_KEY`: Supabase dashboard → Edge Functions → Secrets.
-- **Publish to team** works as in the artifact: it opens the team app, which applies the push.
+- **Team lists:** the owner's ProTracker keeps each person's list in the team app in step by itself, with no Publish button. It writes straight to `team_tasks` whenever an assigned task changes and sends notifications for new ones; the People sidebar shows the state. Ticks come back live.
 
 ## Setup (done once)
 
