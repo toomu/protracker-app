@@ -1,7 +1,8 @@
-// Lets ProTracker open without a connection. The app's own files are fetched fresh when online (so updates
-// arrive at once) and kept as a fallback; the sign-in library and fonts are kept after their first load.
-// Database, sign-in and handwriting requests (supabase.co) are never touched.
-const CACHE = "protracker-v1";
+// Lets ProTracker open without a connection, and shows notifications. The app's own files are fetched fresh when
+// online (so updates arrive at once) and kept as a fallback; the sign-in library and fonts are kept after their
+// first load. Database, sign-in and handwriting requests (supabase.co) are never touched. At team.indexhomes.in
+// this replaces the old team app's sw.js at the same address, so phones that turned notifications on keep them.
+const CACHE = "protracker-v2";
 const SHELL = ["./", "manifest.webmanifest", "icon-192.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"];
 
@@ -31,4 +32,21 @@ self.addEventListener("fetch", (e) => {
       return res;
     })));
   }
+});
+
+// Notifications sent by the push function when the owner assigns someone new tasks.
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "ProTracker", {
+    body: d.body || "", icon: "icon-192.png", data: { url: "./" },
+  }));
+});
+// Tapping one opens the app (or brings an open window forward, which then reloads its list).
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    const open = list.find(c => new URL(c.url).pathname.startsWith(new URL(self.registration.scope).pathname));
+    return open ? open.focus() : self.clients.openWindow(new URL("./", self.registration.scope).href);
+  }));
 });

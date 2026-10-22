@@ -3,8 +3,8 @@
 ProTracker as its own web app at **https://protracker.indexhomes.in/**, with sign-in by email and your tasks saved in Supabase. It's the same page as the claude.ai artifact (`tasks.html`), built for hosting by `build.py`.
 
 - `build.py`: wraps `../tasks.html` into `index.html`. It adds the install tags, supabase-js and the service worker at the `<!--hosted-head…-->` marker, and copies the files below.
-- `deploy.sh "What changed"`: builds into the public repo `toomu/protracker-app` and pushes. GitHub Pages serves it.
-- `CNAME`: the custom domain.
+- `deploy.sh "What changed"`: builds it into both public repos and pushes: `toomu/protracker-app` (protracker.indexhomes.in) and `toomu/protracker-team` (team.indexhomes.in, the old team app's address). GitHub Pages serves them.
+- `CNAME`: protracker.indexhomes.in (deploy.sh writes each repo's own).
 - `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`: the blue Index Homes "1" on white. Add to Home Screen opens it full screen.
 - `sw.js`: opens offline (the app's files network-first; supabase-js and fonts cache-first; never touches supabase.co).
 - `schema.sql`: the `public.pt_docs` table, where each person's data lives (only they can read or change it).
@@ -21,6 +21,7 @@ ProTracker as its own web app at **https://protracker.indexhomes.in/**, with sig
 - **Handwriting:**
   - Only for the emails in `ALLOWED` in the function. The page asks the function (`{check: true}`) whether to show the pad, so the list isn't in the public page, and the function refuses anyone else.
   - It needs the secret `ANTHROPIC_API_KEY`: Supabase dashboard → Edge Functions → Secrets.
+- **Team members:** everyone who isn't the owner gets Simple (one list: assigned tasks plus their own) or Full (all of ProTracker plus an Assigned tab), set per person by the owner in People and stored in `pt_members` (see `schema.sql`). Their own tasks are private. Notifications for new tasks are handled by `sw.js`, which keeps the old team app's subscriptions working at team.indexhomes.in.
 - **Team lists:** the owner's ProTracker keeps each person's list in the team app in step by itself, with no Publish button. It writes straight to `team_tasks` whenever an assigned task changes and sends notifications for new ones; the People sidebar shows the state. Ticks come back live.
 
 ## Setup (done once)

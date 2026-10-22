@@ -32,3 +32,22 @@ begin
     alter publication supabase_realtime add table public.pt_docs;
   end if;
 end $$;
+
+-- Which ProTracker each team member gets: "simple" (one list: what the owner assigned them plus their own
+-- tasks) or "full" (all of ProTracker plus an Assigned tab). No row means simple. Only the owner (public.admins)
+-- sets it, from the People view; each member can read only their own row.
+create table if not exists public.pt_members (
+  email text primary key check (email = lower(email) and email like '%_@_%'),
+  mode text not null default 'simple' check (mode in ('simple', 'full')),
+  updated_at timestamptz not null default now()
+);
+alter table public.pt_members enable row level security;
+drop policy if exists "members: read own or owner" on public.pt_members;
+create policy "members: read own or owner" on public.pt_members for select to authenticated
+using (email = public.my_email() or public.is_admin());
+drop policy if exists "members: owner adds" on public.pt_members;
+create policy "members: owner adds" on public.pt_members for insert to authenticated with check (public.is_admin());
+drop policy if exists "members: owner changes" on public.pt_members;
+create policy "members: owner changes" on public.pt_members for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "members: owner removes" on public.pt_members;
+create policy "members: owner removes" on public.pt_members for delete to authenticated using (public.is_admin());

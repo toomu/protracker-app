@@ -178,6 +178,27 @@
   .signin-row input:focus { outline: none; border-color: var(--accent); }
   #signin-code { letter-spacing: 0.2em; font-variant-numeric: tabular-nums; }
   body.signed-out .header-controls, body.signed-out .view { display: none !important; }
+  /* Team members (hosted app): the Assigned list, swipe to tick or delete, Simple version, notifications */
+  body.simple .tabs[aria-label="Views"], body.simple #add-toggle, body.simple #split-toggle, body.simple #mode-toggle,
+  body.simple #search-toggle, body.simple #team-publish { display: none !important; }
+  #assigned-list li.task { display: block; padding: 0; position: relative; overflow: hidden; touch-action: pan-y; --dx: 0px; }
+  #assigned-list .task-inner {
+    position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 6px 8px 6px 14px; min-height: 60px;
+    background: var(--sheet); transform: translateX(var(--dx));
+  }
+  #assigned-list li.task.settle .task-inner { transition: transform 0.2s ease; }
+  #assigned-list li.task::before, #assigned-list li.task::after {
+    position: absolute; inset: 0; display: flex; align-items: center; padding: 0 20px;
+    font-weight: 700; font-size: 0.9rem; color: var(--sheet); visibility: hidden;
+  }
+  #assigned-list li.task::before { content: "✓ Done"; background: var(--done); }
+  #assigned-list li.task.done::before { content: "↺ Not done"; background: var(--muted); }
+  #assigned-list li.task::after { content: "Delete"; justify-content: flex-end; background: var(--danger); }
+  #assigned-list li.task.sw-r::before, #assigned-list li.task.sw-l.own::after { visibility: visible; }
+  .push-card { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--accent-soft); border-radius: var(--radius); padding: 12px 14px; }
+  .push-card p { margin: 0; flex: 1 1 14rem; }
+  .toast { display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px; }
+  .toast button { font: inherit; font-weight: 700; color: var(--accent-soft); background: none; border: 0; min-height: 40px; padding: 0 12px; border-radius: 8px; cursor: pointer; }
   .account { display: flex; gap: 10px; align-items: center; justify-content: center; color: var(--muted); font-size: 0.85rem; margin: 0; flex-wrap: wrap; }
   .status.err { color: var(--danger); }
 
@@ -349,12 +370,13 @@
   form.composer:focus-within { border-color: var(--accent); }
   .suggest-wrap { position: relative; flex: 1 1 16rem; min-width: 0; display: flex; }
   /* Grows with its text (autoGrow) up to about a third of the screen, then scrolls. */
-  #new-task {
+  #new-task, #mine-new {
     flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink);
     font: inherit; font-size: 1.15rem; line-height: 1.4; padding: 12px 10px; outline: none;
     resize: none; overflow-y: auto; max-height: 35vh; align-self: center;
   }
-  #new-task::placeholder { color: var(--muted); }
+  #new-task::placeholder, #mine-new::placeholder { color: var(--muted); }
+  #assigned-tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .composer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-end; }
   /* #tag / @person dropdown: one list for every task box, placed under the box being typed in (placeSuggest) */
   .suggestions {
@@ -629,6 +651,7 @@
       <button type="button" class="icon-toggle" id="search-toggle" aria-pressed="false" aria-controls="view-search" title="Search tasks (/)" aria-label="Search tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
     <div class="tabs" role="tablist" aria-label="Views">
       <button class="tab" role="tab" id="nav-tasks" data-view="tasks" aria-selected="true">Tasks</button>
+      <button class="tab" role="tab" id="nav-assigned" data-view="assigned" aria-selected="false" hidden>Assigned</button>
       <button class="tab" role="tab" id="nav-tree" data-view="tree" aria-selected="false">Tree</button>
       <button class="tab" role="tab" id="nav-people" data-view="people" aria-selected="false">People</button>
       <button class="tab" role="tab" id="nav-stats" data-view="stats" aria-selected="false">Stats</button>
@@ -796,6 +819,13 @@
         </div>
         <p class="error" id="people-error" hidden></p>
         <div class="team-box" id="team-box" hidden>
+          <div class="team-row" id="person-mode-row" hidden>
+            <span class="label">Their ProTracker</span>
+            <div class="seg sort-seg" id="person-mode" role="group" aria-label="Which ProTracker this person gets">
+              <button type="button" data-pmode="simple" aria-pressed="true">Simple</button>
+              <button type="button" data-pmode="full" aria-pressed="false">Full</button>
+            </div>
+          </div>
           <div class="team-row">
             <input id="person-email" type="email" inputmode="email" autocapitalize="none" maxlength="120" placeholder="Their email for the team app" aria-label="This person's email for the team app">
           </div>
@@ -813,6 +843,29 @@
         <p class="hint" id="people-hint">People are only for your reference. They don't see or use this app. Type @name when adding a task to assign it, and tap a name above to rename that person.</p>
       </section>
     </div>
+  </div>
+
+  <div class="view" id="view-assigned" hidden>
+    <div class="push-card" id="push-card" hidden>
+      <p id="push-card-text">Get a notification on this phone when new tasks are assigned to you.</p>
+      <button class="btn btn-primary" id="push-on" type="button">Turn on</button>
+      <button class="act quiet" id="push-later" type="button">Not now</button>
+    </div>
+    <section class="section" aria-labelledby="assigned-title">
+      <div class="section-head">
+        <h2 id="assigned-title">My tasks</h2>
+        <span class="sub" id="assigned-sub"></span>
+      </div>
+      <form class="composer" id="mine-form" autocomplete="off" hidden>
+        <div class="suggest-wrap">
+          <textarea id="mine-new" rows="1" maxlength="1000" placeholder="Add a task… #tag" aria-label="New task" enterkeyhint="done"></textarea>
+        </div>
+        <div class="composer-actions"><button class="btn btn-primary" id="mine-add" type="submit">Add</button></div>
+      </form>
+      <div class="tag-filter" id="assigned-tags" hidden aria-label="Filter by tag"></div>
+      <ul class="list card-list" id="assigned-list" aria-live="polite"></ul>
+      <p class="hint" id="assigned-hint">Swipe a task right to tick it off; swipe your own tasks left to delete them.</p>
+    </section>
   </div>
 
   <div class="view" id="view-search" hidden>
@@ -843,10 +896,11 @@
     </div>
     <p class="hint" id="best-day"></p>
   </div>
-  <p class="account" id="account" hidden><span id="account-email"></span><button class="act quiet" id="sign-out" type="button">Sign out</button></p>
+  <p class="account" id="account" hidden><span id="account-email"></span><button class="act quiet" id="push-toggle" type="button" hidden>Turn on notifications</button><button class="act quiet" id="sign-out" type="button">Sign out</button></p>
 </div>
 
 <div class="notice" id="notice" role="status" hidden></div>
+<div class="notice toast" id="toast" role="status" hidden><span id="toast-text"></span><button id="toast-undo" type="button">Undo</button></div>
 <ul class="suggestions" id="suggestions" role="listbox" aria-label="Suggestions" hidden></ul>
 <script>
 (() => {
@@ -870,6 +924,7 @@
   let people = [];         // [{id, name}], sorted by name
   let store = null;
   let view = "tasks";
+  let memberMode = "";     // hosted app, team members only: "simple" or "full" (see the Team members section)
   let sub = "open";        // open | stage | done | repo
   let tagFilter = null;
   // How Backlog and Repo are sorted: prio (highest first, then newest), new (latest added first) or old (oldest first).
@@ -1107,6 +1162,7 @@
     if (view === "tree") renderTree();
     if (view === "people") renderPeople();
     if (view === "search") renderSearch();
+    if (memberMode) renderAssigned();
     renderPublish();
   }
 
@@ -1822,7 +1878,7 @@
   // Typing # or @ (at the start or after a space, anywhere in the text) opens a list under the box: saved tags by
   // use, or people. Matches by start first, then anywhere in the name. Up/Down move, Return or Tab picks, Esc closes;
   // tapping one picks it. Works in inputs, textareas and the editable task titles (contenteditable).
-  const SUGGEST_IN = "#new-task, #tree-new, #people-task-new, .tree-input, #search-input, .title[contenteditable='true']";
+  const SUGGEST_IN = "#mine-new, #new-task, #tree-new, #people-task-new, .tree-input, #search-input, .title[contenteditable='true']";
   const sugBox = $("suggestions");
   let sugField = null, suggestions = [], highlighted = 0;
   function textBeforeCaret(el) {
@@ -1968,6 +2024,7 @@
 
   // ---- Tabs ----
   function selectView(v) {
+    if (memberMode === "simple") v = "assigned";   // the Simple version is just the one list
     view = v;
     document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === v)));
     $("view-tasks").hidden = v !== "tasks";
@@ -1975,6 +2032,7 @@
     $("view-tree").hidden = v !== "tree";
     $("view-people").hidden = v !== "people";
     $("view-search").hidden = v !== "search";
+    $("view-assigned").hidden = v !== "assigned";
     $("search-toggle").setAttribute("aria-pressed", String(v === "search"));
     document.body.classList.toggle("tree", v === "tree" || v === "people");
     applyMode();
@@ -1982,6 +2040,7 @@
     if (v === "stats") renderStats();
     if (v === "tree") renderTree();
     if (v === "people") renderPeople();
+    if (v === "assigned") renderAssigned();
   }
   document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => selectView(b.dataset.view)));
   document.querySelectorAll("[data-sub]").forEach(b => b.addEventListener("click", () => {
@@ -2964,6 +3023,9 @@
     }
     rm.textContent = removeArmed === p.id ? "Tap again to remove" : "Remove";
     renderTeamBox(p);
+    $("people-hint").textContent = sb && isOwner
+      ? "Type @name when adding a task to assign it, and tap a name above to rename that person. People with an email see the tasks you assign them when they sign in to ProTracker; Simple or Full sets which version they get."
+      : "People are only for your reference. They don't see or use this app. Type @name when adding a task to assign it, and tap a name above to rename that person.";
     $("people-task-new").placeholder = `Add a task for ${p.name} to the Backlog`;
 
     const mine = tasks.filter(t => peopleOf(t).includes(p.id));
@@ -3237,7 +3299,25 @@
     renderTeamSync();
     const emailInp = $("person-email");
     if (document.activeElement !== emailInp) emailInp.value = p.email || "";
+    // Hosted app, owner: which ProTracker this person gets (public.pt_members; no row means Simple).
+    const email = (p.email || "").toLowerCase();
+    $("person-mode-row").hidden = !(sb && isOwner && validEmail(email));
+    const m = modes[email] || "simple";
+    $("person-mode").querySelectorAll("[data-pmode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pmode === m)));
   }
+  $("person-mode").querySelectorAll("[data-pmode]").forEach(b => b.addEventListener("click", async () => {
+    const p = personById(curPerson), email = p && (p.email || "").toLowerCase();
+    if (!email || !validEmail(email) || (modes[email] || "simple") === b.dataset.pmode) return;
+    const before = modes[email];
+    modes = { ...modes, [email]: b.dataset.pmode };
+    renderPeople();
+    const { error } = await sb.from("pt_members").upsert({ email, mode: b.dataset.pmode, updated_at: new Date().toISOString() }, { onConflict: "email" });
+    if (error) {
+      modes = { ...modes, [email]: before };
+      renderPeople();
+      notice("Couldn't change their version: " + (error.message || "error"));
+    } else notice(`${p.name} gets the ${b.dataset.pmode === "full" ? "Full" : "Simple"} ProTracker the next time they open it.`);
+  }));
   // The Publish to team button sits in the header on every view; the People sidebar shows who it covers and Copy link.
   async function renderPublish() {
     if (sb) { renderTeamSyncStatus(); return; }
@@ -3774,7 +3854,7 @@
     // Split view: the Backlog moves to the left pane, under the typing bar (or pad); back on the right otherwise.
     const bl = $("backlog-section");
     if (split && bl.parentNode !== $("entry")) $("entry").append(bl);
-    if (!split && bl.parentNode !== $("pane-tasks")) $("pane-tasks").insertBefore(bl, $("status"));
+    if (!split && bl.parentNode !== $("pane-tasks")) $("pane-tasks").insertBefore(bl, $("status").parentNode === $("pane-tasks") ? $("status") : null);
     $("entry").hidden = !showAdd;
     $("add-toggle").setAttribute("aria-pressed", String(showAdd));
     $("add-toggle").setAttribute("aria-label", showAdd ? "Hide the add-tasks area" : "Show the add-tasks area");
@@ -3863,20 +3943,348 @@
   // The owner (a row in public.admins) keeps the team lists in sync and sees ticks live; remembered for offline starts.
   async function ownerCheck() {
     const KEY = "protracker.owner." + me.id;
-    try { isOwner = localStorage.getItem(KEY) === "1"; } catch {}
+    let known = null;
+    try { known = localStorage.getItem(KEY); } catch {}
+    isOwner = known === "1";
+    if (known === "0") memberSetup();   // a member: their version opens at once, even offline
     render();
     const { data, error } = await sb.rpc("is_admin");
-    if (error) return;
+    if (error) { if (known === null) memberSetup(); return; }
     isOwner = data === true;
     try { localStorage.setItem(KEY, isOwner ? "1" : "0"); } catch {}
+    if (isOwner && memberMode) { location.reload(); return; }   // was shown a member's version on this device
+    if (!isOwner && !memberMode) memberSetup();
     render();
     if (!isOwner) return;
+    sb.from("pt_members").select("email, mode").then(({ data: rows }) => {
+      modes = Object.fromEntries((rows || []).map(r => [r.email, r.mode]));
+      render();
+    });
     let t = null;
     sb.channel("pt-team").on("postgres_changes", { event: "*", schema: "public", table: "team_tasks" }, () => {
       clearTimeout(t);
       t = setTimeout(pullTeam, 800);
     }).subscribe();
   }
+
+  // ---- Team members (hosted): the owner picks Simple or Full for each person (public.pt_members) ----
+  // Simple: one list, "My tasks": what the owner assigned them (their rows of public.team_tasks) plus their
+  // own tasks (their private ProTracker data). Full: all of ProTracker, plus an Assigned tab with that list.
+  // Ticks on assigned tasks go to team_tasks (queued on the device while offline); the owner sees them as ✓ name.
+  let modes = {};          // owner: email -> "simple" | "full"
+  let assigned = [];       // a member's rows of team_tasks pushed by the owner
+  let aTag = null;         // tag filter on the list
+  async function memberSetup() {
+    if (memberMode) return;
+    const KEY = "protracker.mode." + me.id;
+    let cached = "";
+    try { cached = localStorage.getItem(KEY) || ""; } catch {}
+    applyMember(cached === "full" ? "full" : "simple");
+    replayTeamAppQueue();
+    loadAssigned();
+    renderPush();
+    let t = null;
+    sb.channel("pt-assigned").on("postgres_changes", { event: "*", schema: "public", table: "team_tasks", filter: "assignee_email=eq." + me.email }, () => {
+      clearTimeout(t);
+      t = setTimeout(loadAssigned, 500);
+    }).subscribe();
+    addEventListener("online", () => { flushTicks(); loadAssigned(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { flushTicks(); loadAssigned(); } });
+    const { data, error } = await sb.from("pt_members").select("mode").eq("email", me.email).maybeSingle();
+    if (error) return;
+    const mode = data && data.mode === "full" ? "full" : "simple";
+    try { localStorage.setItem(KEY, mode); } catch {}
+    if (mode !== memberMode) applyMember(mode);
+  }
+  function applyMember(mode) {
+    memberMode = mode;
+    document.body.classList.toggle("simple", mode === "simple");
+    $("nav-assigned").hidden = mode !== "full";
+    $("mine-form").hidden = mode !== "simple";
+    $("assigned-title").textContent = mode === "simple" ? "My tasks" : "Assigned to me";
+    // The status line (loading, offline) sits under whichever list is shown.
+    (mode === "simple" ? $("view-assigned") : $("pane-tasks")).append($("status"));
+    selectView(mode === "simple" ? "assigned" : view === "assigned" ? "assigned" : "tasks");
+    render();
+  }
+
+  const aCacheKey = () => "protracker.assigned." + me.id;
+  const tickKey = () => "protracker.ticks." + me.id;
+  const readJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "null") ?? d; } catch { return d; } };
+  const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  // Ticks not yet saved, laid over what the server sent so a reload doesn't undo them.
+  const withTicks = (rows) => readJSON(tickKey(), []).reduce((out, op) => out.map(r => r.id === op.id ? { ...r, ...op.patch } : r), rows);
+  let loadingA = false;
+  async function loadAssigned() {
+    if (!assigned.length) { assigned = withTicks(readJSON(aCacheKey(), [])); render(); }
+    if (loadingA) return;
+    loadingA = true;
+    try {
+      const { data, error } = await sb.from("team_tasks").select("id, source_id, title, tags, done, completed_at, sort, created_at")
+        .eq("assignee_email", me.email).not("source_id", "is", null);
+      if (error) return;
+      writeJSON(aCacheKey(), data || []);
+      assigned = withTicks(data || []);
+      render();
+      flushTicks();
+    } finally { loadingA = false; }
+  }
+  function tickAssigned(r, quiet) {
+    const patch = { done: !r.done, completed_at: r.done ? null : new Date().toISOString() };
+    assigned = assigned.map(x => x.id === r.id ? { ...x, ...patch } : x);
+    writeJSON(tickKey(), [...readJSON(tickKey(), []).filter(o => o.id !== r.id), { id: r.id, patch }]);
+    render();
+    buzz();
+    flushTicks();
+    if (!quiet) toast((patch.done ? "Done: " : "Not done: ") + shortTitle(r.title), () => {
+      const now = assigned.find(x => x.id === r.id);
+      if (now && now.done === patch.done) tickAssigned(now, true);
+    });
+  }
+  let flushingTicks = false;
+  async function flushTicks() {
+    if (flushingTicks || !readJSON(tickKey(), []).length) return;
+    flushingTicks = true;
+    try {
+      for (const op of readJSON(tickKey(), [])) {
+        const { error } = await sb.from("team_tasks").update(op.patch).eq("id", op.id);
+        if (error && (navigator.onLine === false || /fetch|network|load failed/i.test(error.message || ""))) {
+          setStatus("Offline. Your ticks are kept on this device and saved when you're back online.");
+          return;
+        }
+        // Saved (or refused, e.g. the task was taken back): drop it unless it was ticked again meanwhile.
+        writeJSON(tickKey(), readJSON(tickKey(), []).filter(o => !(o.id === op.id && JSON.stringify(o.patch) === JSON.stringify(op.patch))));
+      }
+      if (/^Offline\. Your ticks/.test(statusEl.textContent)) setStatus("");
+    } finally { flushingTicks = false; }
+  }
+  // The old team app's offline queue (same address, same sign-in): ticks still waiting are sent from here, and
+  // tasks added offline become this person's own tasks.
+  function replayTeamAppQueue() {
+    const k = "team.queue." + me.id;
+    const ops = readJSON(k, []);
+    if (!Array.isArray(ops) || !ops.length) return;
+    ops.forEach(op => {
+      if (op && op.op === "update" && op.patch && "done" in op.patch)
+        writeJSON(tickKey(), [...readJSON(tickKey(), []).filter(o => o.id !== op.id), { id: op.id, patch: { done: !!op.patch.done, completed_at: op.patch.completed_at || null } }]);
+      else if (op && op.op === "insert" && op.row && !op.row.source_id && op.row.title)
+        store.add({ title: String(op.row.title), tags: Array.isArray(op.row.tags) ? op.row.tags : [], people: [], toHour: false });
+    });
+    try { localStorage.removeItem(k); } catch {}
+  }
+
+  // One row: tick, title, tags; swipe right ticks, swipe left deletes (own tasks only). Assigned ones say so.
+  function assignedRow(item) {
+    const own = item.kind === "own", t = item.t;
+    const li = document.createElement("li");
+    li.className = "task" + (t.done ? " done" : "") + (own ? " own" : "");
+    li.innerHTML = `<div class="task-inner"><button class="check" type="button" aria-label="${t.done ? "Mark as not done" : "Mark as done"}">${CHECK}</button>
+      <div class="task-body"><div class="title"></div><div class="tags"></div></div></div>`;
+    showTitle(li.querySelector(".title"), t.title);
+    const tags = li.querySelector(".tags");
+    if (!own) tags.append(Object.assign(document.createElement("span"), { className: "place hour", textContent: "Assigned" }));
+    tagsOf(t).forEach(tag => { const c = chip(tag); c.onclick = () => { aTag = aTag === tag ? null : tag; renderAssigned(); }; tags.append(c); });
+    const tick = () => own ? tickOwn(t) : tickAssigned(t);
+    li.querySelector(".check").onclick = tick;
+    if (own) {
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "del"; del.innerHTML = TRASH;
+      del.setAttribute("aria-label", "Delete task");
+      del.onclick = () => deleteOwn(t);
+      li.querySelector(".task-inner").append(del);
+    }
+    swipeRow(li, tick, own ? () => deleteOwn(t) : null);
+    return li;
+  }
+  function tickOwn(t, quiet) {
+    toggleDone(t);
+    buzz();
+    if (!quiet) toast((t.done ? "Not done: " : "Done: ") + shortTitle(t.title), () => {
+      const now = tasks.find(x => x.id === t.id);
+      if (now && now.done !== t.done) tickOwn(now, true);
+    });
+  }
+  function deleteOwn(t) {
+    deleteTask(t);
+    toast("Deleted: " + shortTitle(t.title), () => store.add({ title: t.title, tags: tagsOf(t), people: peopleOf(t), toHour: false, priority: prioOf(t) }));
+  }
+  const SWIPE_AT = 90;
+  function swipeRow(li, onRight, onLeft) {
+    let x0 = 0, y0 = 0, dx = 0, mode = "", id = null, swallow = false;
+    const set = (v) => { dx = v; li.style.setProperty("--dx", v + "px"); li.classList.toggle("sw-r", v > 0); li.classList.toggle("sw-l", v < 0); };
+    const reset = () => { li.classList.add("settle"); set(0); setTimeout(() => li.classList.remove("settle", "sw-r", "sw-l"), 220); };
+    li.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch" || id !== null) return;
+      id = e.pointerId; x0 = e.clientX; y0 = e.clientY; mode = ""; li.classList.remove("settle");
+    });
+    li.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== id) return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (!mode) {
+        if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { mode = "scroll"; return; }
+        if (Math.abs(mx) > 12 && Math.abs(mx) > Math.abs(my) * 1.5) { mode = "swipe"; try { li.setPointerCapture(id); } catch {} }
+        else return;
+      }
+      if (mode !== "swipe") return;
+      set(mx < 0 && !onLeft ? Math.max(mx, -28) : mx);   // left only goes far where it can delete
+    });
+    const end = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (mode !== "swipe") return;
+      swallow = true;
+      setTimeout(() => { swallow = false; }, 350);
+      if (e.type === "pointerup" && dx > SWIPE_AT) { reset(); onRight(); }
+      else if (e.type === "pointerup" && dx < -SWIPE_AT && onLeft) { li.classList.add("settle"); set(-li.offsetWidth); setTimeout(onLeft, 180); }
+      else reset();
+    };
+    li.addEventListener("pointerup", end);
+    li.addEventListener("pointercancel", end);
+    li.addEventListener("click", (e) => { if (swallow) { e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+
+  function renderAssigned() {
+    const openA = assigned.filter(r => !r.done).length;
+    $("nav-assigned").textContent = openA ? `Assigned (${openA})` : "Assigned";
+    if (view !== "assigned") return;
+    // Simple: assigned and own tasks together. Full: only the assigned ones (own tasks live in the other views).
+    const items = assigned.map(r => ({ kind: "assigned", t: r, key: r.sort, at: Date.parse(r.completed_at || "") || 0 }));
+    if (memberMode === "simple") tasks.filter(t => !isRepo(t)).forEach(t => items.push({ kind: "own", t, key: 1e9 - (t.createdAt || 0), at: t.completedAt || 0 }));
+    const counts = new Map();
+    items.forEach(i => tagsOf(i.t).forEach(tag => counts.set(tag, (counts.get(tag) || 0) + 1)));
+    if (aTag && !counts.has(aTag)) aTag = null;
+    const box = $("assigned-tags");
+    box.replaceChildren();
+    box.hidden = !counts.size;
+    [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).forEach(([tag, n]) => {
+      const c = chip(tag, String(n));
+      c.setAttribute("aria-pressed", String(tag === aTag));
+      c.onclick = () => { aTag = aTag === tag ? null : tag; renderAssigned(); };
+      box.append(c);
+    });
+    const shown = items.filter(i => !aTag || tagsOf(i.t).includes(aTag));
+    const open = shown.filter(i => !i.t.done).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "assigned" ? -1 : 1) || a.key - b.key);
+    const done = shown.filter(i => i.t.done).sort((a, b) => b.at - a.at);
+    $("assigned-sub").textContent = `${open.length} open · ${done.length} done`;
+    const ul = $("assigned-list");
+    ul.replaceChildren();
+    if (!shown.length) {
+      ul.append(memberMode === "simple"
+        ? emptyRow(aTag ? `Nothing tagged #${aTag}` : "Nothing here yet", aTag ? "Tap the highlighted tag again to see everything." : "Tasks assigned to you show up here. Add your own above.")
+        : emptyRow("Nothing assigned to you", "Tasks assigned to you in ProTracker show up here."));
+      return;
+    }
+    open.forEach(i => ul.append(assignedRow(i)));
+    if (done.length) {
+      const h = document.createElement("li");
+      h.className = "group-head";
+      h.textContent = `Done (${done.length})`;
+      ul.append(h);
+      done.forEach(i => ul.append(assignedRow(i)));
+    }
+  }
+  $("mine-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("mine-new").value.trim();
+    if (!v || !store) return;
+    const { title, tags, names, priority } = parseEntry(v);
+    if (!title) return;
+    store.add({ title, tags: aTag && !tags.includes(aTag) ? [...tags, aTag].slice(0, 8) : tags, people: idsFor(names), toHour: false, priority });
+    $("mine-new").value = "";
+    hideSuggest();
+  });
+  $("mine-new").addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("mine-form").requestSubmit(); }
+  });
+
+  // Undo bar for ticks and deletes.
+  let toastTimer = 0, toastUndo = null;
+  function toast(text, undo) {
+    clearTimeout(toastTimer);
+    toastUndo = undo || null;
+    $("toast-text").textContent = text;
+    $("toast-undo").hidden = !undo;
+    $("toast").hidden = false;
+    toastTimer = setTimeout(hideToast, 5000);
+  }
+  function hideToast() { clearTimeout(toastTimer); $("toast").hidden = true; toastUndo = null; }
+  $("toast-undo").addEventListener("click", () => { const u = toastUndo; hideToast(); if (u) u(); });
+  const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch {} };
+  const shortTitle = (title) => title.length > 40 ? title.slice(0, 38) + "…" : title;
+
+  // ---- Notifications for members: the "push" Edge Function sends one when the owner assigns them new tasks ----
+  // Phones that turned them on in the old team app (same address and service worker) keep them.
+  const appleMobile = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  const canPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const fromB64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+  async function pushKey() {
+    const saved = readJSON("team.pushKey", null);
+    if (saved) return saved;
+    const { data, error } = await sb.functions.invoke("push", { body: { action: "key" } });
+    if (error || !data || !data.publicKey) throw error || new Error("no key");
+    writeJSON("team.pushKey", data.publicKey);
+    return data.publicKey;
+  }
+  async function deviceSub() {
+    try { const reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; }
+    catch { return null; }
+  }
+  async function saveSub(sub) {
+    const j = sub.toJSON();
+    const { error } = await sb.from("push_subscriptions").upsert(
+      { endpoint: j.endpoint, email: me.email, user_id: me.id, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
+    if (error) throw error;
+  }
+  // "none" (owner, or no support), "ios" (iPhone Safari: add to Home Screen first), "blocked", "on", "off"
+  async function pushState() {
+    if (!me || !memberMode) return "none";
+    if (appleMobile() && !standaloneApp() && !("PushManager" in window)) return "ios";
+    if (!canPush()) return "none";
+    if (Notification.permission === "denied") return "blocked";
+    return Notification.permission === "granted" && await deviceSub() ? "on" : "off";
+  }
+  async function renderPush() {
+    const st = await pushState();
+    $("push-card").hidden = !((st === "off" || st === "ios") && !readJSON("team.pushLater", false));
+    $("push-card-text").textContent = st === "ios"
+      ? "To get a notification when tasks are assigned to you, add this app to your Home Screen (Share → Add to Home Screen) and open it from there."
+      : "Get a notification on this phone when new tasks are assigned to you.";
+    $("push-on").hidden = st === "ios";
+    $("push-toggle").hidden = !(st === "on" || st === "off");
+    $("push-toggle").textContent = st === "on" ? "Turn off notifications" : "Turn on notifications";
+    // A phone that already had them: make sure this sign-in owns the subscription.
+    if (st === "on") { const sub = await deviceSub(); if (sub) saveSub(sub).catch(() => {}); }
+  }
+  async function turnOnPush() {
+    $("push-on").disabled = $("push-toggle").disabled = true;
+    try {
+      if (await Notification.requestPermission() !== "granted") { notice("Notifications weren't allowed. You can allow them later in your phone's settings for this app."); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription()
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(await pushKey()) });
+      await saveSub(sub);
+      notice("Notifications are on. You'll get one when tasks are assigned to you.");
+    } catch (e) {
+      notice("Couldn't turn on notifications: " + ((e && e.message) || e));
+    } finally {
+      $("push-on").disabled = $("push-toggle").disabled = false;
+      renderPush();
+    }
+  }
+  // Forgets this device on the server (before sign-out too, so the next person on it isn't sent someone else's tasks).
+  async function forgetDevice(unsubscribe) {
+    const sub = await deviceSub();
+    if (!sub || !me) return;
+    try { await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); } catch {}
+    if (unsubscribe) await sub.unsubscribe().catch(() => {});
+  }
+  $("push-on").addEventListener("click", turnOnPush);
+  $("push-later").addEventListener("click", () => { writeJSON("team.pushLater", true); renderPush(); });
+  $("push-toggle").addEventListener("click", async () => {
+    if ((await pushState()) === "on") { await forgetDevice(true); notice("Notifications are off on this device."); renderPush(); }
+    else turnOnPush();
+  });
   // Only some people get the handwriting pad. The handwriting function holds the list (so it isn't in this public
   // page): asked with {check: true}, it answers for the signed-in person. The answer is kept for offline starts.
   async function padAllowed() {
@@ -3943,6 +4351,7 @@
     const waiting = store && store.pendingCount ? store.pendingCount() : 0;
     if (waiting && !confirm(`${waiting} ${waiting === 1 ? "change hasn't" : "changes haven't"} been saved yet (you're offline). Sign out anyway and lose ${waiting === 1 ? "it" : "them"}?`)) return;
     if (store && store.forget) store.forget();
+    if (memberMode) await forgetDevice(false);
     await sb.auth.signOut();
     location.reload();
   });
