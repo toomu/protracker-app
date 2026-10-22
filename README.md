@@ -1,2 +1,31 @@
-# protracker-app
-ProTracker, hosted at protracker.indexhomes.in
+# ProTracker (hosted)
+
+ProTracker as its own web app at **https://protracker.indexhomes.in/**, with sign-in by email and your tasks saved in Supabase. It's the same page as the claude.ai artifact (`tasks.html`), built for hosting by `build.py`.
+
+- `build.py`: wraps `../tasks.html` into `index.html`. It adds the install tags, supabase-js and the service worker at the `<!--hosted-head…-->` marker, and copies the files below.
+- `deploy.sh "What changed"`: builds into the public repo `toomu/protracker-app` and pushes. GitHub Pages serves it.
+- `CNAME`: the custom domain.
+- `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`: the blue Index Homes "1" on white. Add to Home Screen opens it full screen.
+- `sw.js`: opens offline (the app's files network-first; supabase-js and fonts cache-first; never touches supabase.co).
+- `schema.sql`: the `public.pt_docs` table, where each person's data lives (only they can read or change it).
+- `functions/handwriting/index.ts`: the Edge Function `handwriting`, which reads the writing pad with Claude. It is deployed with JWT verification on.
+
+## How it works
+
+- **Sign in:** you type your email, then the 8-digit code from the email (the same Supabase sign-in as the team app). Anyone can sign in, and each person gets their own private ProTracker.
+- **Storage:**
+  - One row per document in `pt_docs`, the same shape as the artifact's: task documents keyed by task id, plus `_people`, `_tags`, `_tagcats` and `_team`.
+  - Changes show at once and save in the background. Offline, they wait on the device and are sent when you're back.
+  - Other devices' changes arrive live.
+- **Team ticks:** read straight from `team_tasks` (the owner sees every pushed task); no Supabase connector needed.
+- **Handwriting:**
+  - Only for the emails in `ALLOWED` in the function. The page asks the function (`{check: true}`) whether to show the pad, so the list isn't in the public page, and the function refuses anyone else.
+  - It needs the secret `ANTHROPIC_API_KEY`: Supabase dashboard → Edge Functions → Secrets.
+- **Publish to team** works as in the artifact: it opens the team app, which applies the push.
+
+## Setup (done once)
+
+1. In Supabase, run `schema.sql`, deploy `functions/handwriting` as `handwriting`, and add the secret `ANTHROPIC_API_KEY`.
+2. Go to Authentication → URL Configuration and add `https://protracker.indexhomes.in` under Redirect URLs, so the link in the sign-in email comes back here (the code works without it).
+3. In DNS (GoDaddy), add a CNAME record: `protracker` → `toomu.github.io`.
+4. In the repo's Pages settings, once the certificate is issued, turn on Enforce HTTPS.
